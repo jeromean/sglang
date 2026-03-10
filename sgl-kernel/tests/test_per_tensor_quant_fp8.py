@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import pytest
 import torch
-from sgl_kernel import sgl_per_tensor_quant_fp8
+from sglang.jit_kernel.per_tensor_quant_fp8 import per_tensor_quant_fp8
 
 from sglang.srt.utils import is_hip
 
@@ -21,7 +21,7 @@ def sglang_scaled_fp8_quant(
     if scale is None:
         scale = torch.zeros(1, device=input.device, dtype=torch.float32)
         is_static = False
-    sgl_per_tensor_quant_fp8(input, output, scale, is_static)
+    per_tensor_quant_fp8(input, output, scale, is_static)
 
     return output, scale
 

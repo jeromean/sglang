@@ -2,7 +2,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytest
 import torch
-from sgl_kernel import FusedSetKVBufferArg, apply_rope_with_cos_sin_cache_inplace
+from sglang.jit_kernel.rope import (
+    FusedSetKVBufferArg,
+    apply_rope_with_cos_sin_cache_inplace,
+)
 from sgl_kernel.testing.rotary_embedding import (
     FlashInferRotaryEmbedding,
     MHATokenToKVPool,

@@ -3,13 +3,13 @@ import os
 
 import torch
 import triton
-from sgl_kernel import FusedSetKVBufferArg
 from sgl_kernel.testing.rotary_embedding import (
     FlashInferRotaryEmbedding,
     MHATokenToKVPool,
     RotaryEmbedding,
     create_inputs,
 )
+from sglang.jit_kernel.rope import FusedSetKVBufferArg
 
 from sglang.srt.utils.bench_utils import bench_kineto
 

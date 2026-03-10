@@ -4,7 +4,7 @@ from typing import Callable
 
 import torch
 from flashinfer import fp4_quantize, scaled_fp4_grouped_quantize
-from sgl_kernel import scaled_fp4_quant
+from sglang.jit_kernel.nvfp4 import scaled_fp4_quant
 from torch.nn import functional as F
 
 from sglang.srt.layers.activation import SiluAndMul

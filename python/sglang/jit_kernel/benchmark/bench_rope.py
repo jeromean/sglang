@@ -89,7 +89,7 @@ def sglang_rope_v1(
     positions: torch.Tensor,
     is_neox: bool,
 ) -> None:
-    from sgl_kernel import apply_rope_with_cos_sin_cache_inplace
+    from sglang.jit_kernel.rope import apply_rope_with_cos_sin_cache_inplace
 
     head_size = q.shape[-1]
     apply_rope_with_cos_sin_cache_inplace(
@@ -160,7 +160,10 @@ def rope_v1_store(
     out_loc: torch.Tensor,
     is_neox: bool,
 ) -> None:
-    from sgl_kernel import FusedSetKVBufferArg, apply_rope_with_cos_sin_cache_inplace
+    from sglang.jit_kernel.rope import (
+        FusedSetKVBufferArg,
+        apply_rope_with_cos_sin_cache_inplace,
+    )
 
     head_size = q.shape[-1]
     apply_rope_with_cos_sin_cache_inplace(

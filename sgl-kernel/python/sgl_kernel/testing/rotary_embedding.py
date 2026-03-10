@@ -1,7 +1,10 @@
 from typing import Optional, Tuple, Union
 
 import torch
-from sgl_kernel import FusedSetKVBufferArg, apply_rope_with_cos_sin_cache_inplace
+from sglang.jit_kernel.rope import (
+    FusedSetKVBufferArg,
+    apply_rope_with_cos_sin_cache_inplace,
+)
 
 
 # vLLM torch native
