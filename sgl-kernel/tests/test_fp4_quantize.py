@@ -5,6 +5,7 @@ from flashinfer import (
     silu_and_mul_scaled_nvfp4_experts_quantize,
 )
 from sgl_kernel import silu_and_mul
+
 from sglang.jit_kernel.nvfp4 import scaled_fp4_quant
 
 skip_condition = torch.cuda.get_device_capability() < (10, 0)

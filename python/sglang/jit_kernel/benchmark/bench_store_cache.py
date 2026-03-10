@@ -13,6 +13,7 @@ from sglang.jit_kernel.benchmark.utils import (
 )
 from sglang.jit_kernel.kvcache import store_cache
 
+
 def sglang_jit_store_cache(
     k: torch.Tensor,
     v: torch.Tensor,

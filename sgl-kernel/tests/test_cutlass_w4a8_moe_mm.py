@@ -1,8 +1,9 @@
 import pytest
 import torch
 from sgl_kernel import cutlass_w4a8_moe_mm
-from sglang.jit_kernel.per_tensor_quant_fp8 import per_tensor_quant_fp8
 from utils import is_hopper
+
+from sglang.jit_kernel.per_tensor_quant_fp8 import per_tensor_quant_fp8
 
 
 def pack_int4_values_to_int8(int4_values_interleaved: torch.Tensor) -> torch.Tensor:
