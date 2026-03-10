@@ -3,8 +3,8 @@ from typing import Optional, Tuple, Union
 
 import torch
 
+from sglang.jit_kernel.rope import FusedSetKVBufferArg as _JitFusedSetKVBufferArg
 from sglang.jit_kernel.rope import (
-    FusedSetKVBufferArg as _JitFusedSetKVBufferArg,
     apply_rope_with_cos_sin_cache_inplace as _jit_apply_rope_with_cos_sin_cache_inplace,
 )
 
