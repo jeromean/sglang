@@ -91,13 +91,11 @@ def sglang_rope_v1(
 ) -> None:
     from sglang.jit_kernel.rope import apply_rope_with_cos_sin_cache_inplace
 
-    head_size = q.shape[-1]
     apply_rope_with_cos_sin_cache_inplace(
-        positions=positions,
-        query=q.view(q.shape[0], -1),
-        key=k.view(k.shape[0], -1),
-        head_size=head_size,
+        q=q,
+        k=k,
         cos_sin_cache=COS_SIN_CACHE,
+        positions=positions,
         is_neox=is_neox,
     )
 
@@ -165,20 +163,16 @@ def rope_v1_store(
         apply_rope_with_cos_sin_cache_inplace,
     )
 
-    head_size = q.shape[-1]
     apply_rope_with_cos_sin_cache_inplace(
-        positions=positions,
-        query=q.view(q.shape[0], -1),
-        key=k.view(k.shape[0], -1),
-        head_size=head_size,
+        q=q,
+        k=k,
         cos_sin_cache=COS_SIN_CACHE,
+        positions=positions,
         is_neox=is_neox,
-        fused_set_kv_buffer_arg=FusedSetKVBufferArg(
-            value=v.view(v.shape[0], -1),
+        fused_args=FusedSetKVBufferArg(
+            value=v,
             k_buffer=k_cache,
             v_buffer=v_cache,
-            k_scale=None,
-            v_scale=None,
             cache_loc=out_loc,
         ),
     )
