@@ -12,7 +12,7 @@
 sgl-kernel provides optimized compute primitives for LLM inference engines, enabling efficient inference for large language models and vision-language models through custom kernel operations. It has been used by [LightLLM](https://github.com/ModelTC/LightLLM), [SGLang](https://github.com/sgl-project/sglang) and so on.
 
 ## Installation
-Requires torch == 2.9.1
+Requires torch == 2.10.0
 
 ```bash
 # Latest version
