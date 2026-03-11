@@ -135,7 +135,7 @@ class SchedulerPPMixin:
                             self.send_proxy_work = self._pp_send_dict_to_next_stage(
                                 result.pp_hidden_states_proxy_tensors.tensors,
                                 async_send=True,
-                                msg_kind="proxy",
+                                msg_type="proxy",
                             )
 
                 self.pp_outputs = next_pp_outputs
@@ -307,7 +307,7 @@ class SchedulerPPMixin:
                         self.send_proxy_work = self._pp_send_dict_to_next_stage(
                             result.pp_hidden_states_proxy_tensors.tensors,
                             async_send=True,
-                            msg_kind="proxy",
+                            msg_type="proxy",
                         )
 
                 self.pp_outputs = next_pp_outputs
@@ -488,7 +488,7 @@ class SchedulerPPMixin:
                         self.send_proxy_work = self._pp_send_dict_to_next_stage(
                             result.pp_hidden_states_proxy_tensors.tensors,
                             async_send=True,
-                            msg_kind="proxy",
+                            msg_type="proxy",
                         )
 
                 self.pp_outputs = next_pp_outputs
@@ -919,15 +919,15 @@ class SchedulerPPMixin:
         self: Scheduler,
         tensor_dict: Dict[str, torch.Tensor],
         async_send: bool = True,
-        msg_kind: str = "default",
+        msg_type: str = "default",
     ):
         # Warn once if using default untyped messages
-        if msg_kind == "default":
+        if msg_type == "default":
             logger.warning_once(
                 "PP send: using default untyped message. "
-                "Consider adding msg_kind='proxy' or 'output' to avoid recv conflicts."
+                "Consider adding msg_type='proxy' or 'output' to avoid recv conflicts."
             )
-        tensor_dict["__msg_kind__"] = msg_kind
+        tensor_dict["__msg_type__"] = msg_type
         p2p_work = []
         p2p_work.extend(
             self.pp_group.send_tensor_dict(
@@ -945,7 +945,7 @@ class SchedulerPPMixin:
         expected_kind: str = "default",
         all_gather_group: Optional = None,
     ) -> Dict[str, torch.Tensor]:
-        """Receive a typed tensor dict, demultiplexing by msg_kind.
+        """Receive a typed tensor dict, demultiplexing by msg_type.
 
         If a message of the wrong kind is received, it's stashed in the queue
         and we continue receiving until we get the expected kind.
@@ -959,12 +959,12 @@ class SchedulerPPMixin:
             tensor_dict = self.pp_group.recv_tensor_dict(
                 all_gather_group=all_gather_group
             )
-            received_kind = tensor_dict.get("__msg_kind__", "default")
+            received_kind = tensor_dict.get("__msg_type__", "default")
             if received_kind == expected_kind:
                 if received_kind == "default":
                     logger.warning_once(
                         f"PP recv: got default untyped message. Content keys: {tensor_dict.keys()}"
-                        "Consider adding msg_kind='proxy' or 'output' to avoid recv conflicts."
+                        "Consider adding msg_type='proxy' or 'output' to avoid recv conflicts."
                     )
                 return tensor_dict
             else:
@@ -1048,7 +1048,7 @@ class SchedulerPPMixin:
                         send_output_work = self._pp_send_dict_to_next_stage(
                             pp_outputs_to_send.tensors,
                             async_send=True,
-                            msg_kind="output",
+                            msg_type="output",
                         )
         # send the outputs from the last round to let the next stage worker run post processing
         if not self.pp_group.is_last_rank:
@@ -1057,7 +1057,7 @@ class SchedulerPPMixin:
                     send_output_work = self._pp_send_dict_to_next_stage(
                         pp_outputs.tensors,
                         async_send=True,
-                        msg_kind="output",
+                        msg_type="output",
                     )
         return send_output_work
 
