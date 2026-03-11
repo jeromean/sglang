@@ -1,3 +1,4 @@
+import os
 import unittest
 from types import SimpleNamespace
 
@@ -24,11 +25,39 @@ from sglang.test.test_utils import (
 )
 
 register_cuda_ci(est_time=350, suite="stage-c-test-4-gpu-h100")
-register_amd_ci(
-    est_time=350,
-    suite="stage-c-test-4-gpu-amd",
-    disabled="Server OOM on 4-GPU MI325 runners - needs memory tuning",
-)
+register_amd_ci(est_time=350, suite="stage-c-test-4-gpu-amd")
+
+AMD_4GPU_MEM_FRACTION = "0.60"
+AMD_4GPU_TIMEOUT = "1200"
+
+
+def _amd_dp_attention_env():
+    if not is_in_amd_ci():
+        return None
+
+    env = os.environ.copy()
+    env["NCCL_CUMEM_ENABLE"] = "0"
+    env["NCCL_NVLS_ENABLE"] = "0"
+    env["RCCL_MSCCL_ENABLE"] = "0"
+    env["SGLANG_USE_ROCM700A"] = "1"
+    env["SGLANG_USE_AITER"] = "0"
+    return env
+
+
+def _amd_dp_attention_args():
+    if not is_in_amd_ci():
+        return []
+
+    return [
+        "--attention-backend",
+        "triton",
+        "--mem-fraction-static",
+        AMD_4GPU_MEM_FRACTION,
+        "--watchdog-timeout",
+        AMD_4GPU_TIMEOUT,
+        "--dist-timeout",
+        AMD_4GPU_TIMEOUT,
+    ]
 
 
 class TestDPAttentionDP2TP4(
@@ -41,16 +70,19 @@ class TestDPAttentionDP2TP4(
     def setUpClass(cls):
         cls.model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
+        other_args = [
+            "--trust-remote-code",
+            "--tp=4",
+            "--enable-dp-attention",
+            "--dp=2",
+        ]
+        other_args.extend(_amd_dp_attention_args())
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            other_args=[
-                "--trust-remote-code",
-                "--tp=4",
-                "--enable-dp-attention",
-                "--dp=2",
-            ],
+            other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod
@@ -94,13 +126,16 @@ class TestDPAttentionDP2TP2DeepseekV3MTP(
             "--enable-dp-attention",
             "--dp-size=2",
         ]
-        if not is_in_amd_ci():
+        if is_in_amd_ci():
+            other_args.extend(_amd_dp_attention_args())
+        else:
             other_args += ["--mem-frac", "0.7"]
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
             other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod
@@ -142,18 +177,21 @@ class TestDPAttentionDP2TP4VLM(CustomTestCase):
         cls.model = "Qwen/Qwen3-VL-30B-A3B-Instruct"
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.image_url = DEFAULT_IMAGE_URL
+        other_args = [
+            "--trust-remote-code",
+            "--tp",
+            "4",
+            "--enable-dp-attention",
+            "--dp",
+            "2",
+        ]
+        other_args.extend(_amd_dp_attention_args())
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            other_args=[
-                "--trust-remote-code",
-                "--tp",
-                "4",
-                "--enable-dp-attention",
-                "--dp",
-                "2",
-            ],
+            other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod

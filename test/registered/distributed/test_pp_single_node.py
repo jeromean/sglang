@@ -6,6 +6,7 @@ python3 -m unittest test_pp_single_node.TestFixedBugs.test_chunked_prefill_with_
 python3 -m unittest test_pp_single_node.TestQwenVLPPAccuracy.test_mmmu
 """
 
+import os
 import time
 import unittest
 from types import SimpleNamespace
@@ -34,6 +35,17 @@ from sglang.test.test_utils import (
 
 register_cuda_ci(est_time=500, suite="stage-c-test-4-gpu-h100")
 register_amd_ci(est_time=500, suite="stage-c-test-4-gpu-amd")
+
+
+def _get_amd_triton_env():
+    if not is_in_amd_ci():
+        return None
+
+    env = os.environ.copy()
+    # AMD CI sets SGLANG_USE_AITER=1 globally; override it here so PP VLM
+    # accuracy is measured with the explicit triton backend instead.
+    env["SGLANG_USE_AITER"] = "0"
+    return env
 
 
 class TestPPAccuracy(unittest.TestCase):
@@ -147,19 +159,23 @@ class TestQwenVLPPAccuracy(unittest.TestCase):
     def setUpClass(cls):
         cls.model = DEFAULT_MODEL_NAME_FOR_TEST_VL_PP
         cls.base_url = "http://127.0.0.1:23333"
+        other_args = [
+            "--tp-size",
+            1,
+            "--pp-size",
+            4,
+            "--chunked-prefill-size",
+            8192,
+            "--enable-multimodal",
+        ]
+        if is_in_amd_ci():
+            other_args.extend(["--attention-backend", "triton"])
         cls.process = popen_launch_server(
             DEFAULT_MODEL_NAME_FOR_TEST_VL_PP,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            other_args=[
-                "--tp-size",
-                1,
-                "--pp-size",
-                4,
-                "--chunked-prefill-size",
-                8192,
-                "--enable-multimodal",
-            ],
+            other_args=other_args,
+            env=_get_amd_triton_env(),
         )
 
     def test_gsm8k(self):
@@ -175,10 +191,7 @@ class TestQwenVLPPAccuracy(unittest.TestCase):
         metrics = run_eval_few_shot_gsm8k(args)
         print(f"{metrics=}")
 
-        if is_in_amd_ci():
-            self.assertGreater(metrics["accuracy"], 0.45)
-        else:
-            self.assertGreater(metrics["accuracy"], 0.65)
+        self.assertGreater(metrics["accuracy"], 0.65)
         # Wait a little bit so that the memory check happens.
         time.sleep(4)
 

@@ -1,3 +1,4 @@
+from datetime import timedelta
 import multiprocessing
 import os
 import time
@@ -18,21 +19,31 @@ from sglang.test.test_utils import (
     DEFAULT_SMALL_MODEL_NAME_FOR_TEST_BASE,
     CustomTestCase,
     find_available_port,
+    is_in_amd_ci,
 )
 
 register_cuda_ci(est_time=64, suite="stage-c-test-4-gpu-h100")
-register_amd_ci(
-    est_time=64,
-    suite="stage-c-test-4-gpu-amd",
-    disabled="RCCL multi-process allreduce timeout on 4-GPU MI325 runners",
-)
+register_amd_ci(est_time=64, suite="stage-c-test-4-gpu-amd")
+
+AMD_DIST_TIMEOUT = timedelta(minutes=20)
 
 TEST_SUITE = dict(
     model_path=DEFAULT_SMALL_MODEL_NAME_FOR_TEST,
-    mem_fraction_static=0.83,
+    mem_fraction_static=0.60 if is_in_amd_ci() else 0.83,
     dp_size=2,
     tp_size=2,
 )
+
+
+def _configure_amd_distributed_env():
+    if not is_in_amd_ci():
+        return
+
+    os.environ["NCCL_CUMEM_ENABLE"] = "0"
+    os.environ["NCCL_NVLS_ENABLE"] = "0"
+    os.environ["RCCL_MSCCL_ENABLE"] = "0"
+    os.environ["SGLANG_USE_AITER"] = "0"
+    os.environ["SGLANG_MEMORY_SAVER_CUDA_GRAPH"] = "1"
 
 
 class EngineWrapper:
@@ -146,12 +157,22 @@ def _run_sglang_subprocess(
     try:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = str(master_port)
-        dist.init_process_group(
+        _configure_amd_distributed_env()
+        init_pg_kwargs = dict(
+            backend="nccl",
             rank=rank,
             device_id=torch.device(f"cuda:{rank}"),
             world_size=dp_size * tp_size,
         )
+        if is_in_amd_ci():
+            init_pg_kwargs["timeout"] = AMD_DIST_TIMEOUT
+        dist.init_process_group(**init_pg_kwargs)
         torch.cuda.set_device(rank)
+
+        if is_in_amd_ci():
+            warmup = torch.ones(1, device=torch.cuda.current_device())
+            dist.all_reduce(warmup)
+            dist.barrier()
 
         base_gpu_id = rank // tp_size * tp_size
         mesh_kwargs = dict(
