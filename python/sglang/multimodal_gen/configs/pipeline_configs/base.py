@@ -399,6 +399,9 @@ class PipelineConfig:
     def prepare_neg_cond_kwargs(self, batch, device, rotary_emb, dtype):
         return {}
 
+    def prepare_serial_cfg_kwargs(self, batch, device, rotary_emb, dtype):
+        return None
+
     @staticmethod
     def add_cli_args(
         parser: FlexibleArgumentParser, prefix: str = ""

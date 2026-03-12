@@ -1,5 +1,6 @@
 # Copied and adapted from: https://github.com/hao-ai-lab/FastVideo
 
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -200,7 +201,33 @@ class QwenImagePipelineConfig(ImagePipelineConfig):
         txt_cos_sin_cache = torch.cat([txt_cos_half, txt_sin_half], dim=-1)
         return img_cos_sin_cache, txt_cos_sin_cache
 
-    def _prepare_cond_kwargs(self, batch, prompt_embeds, rotary_emb, device, dtype):
+    @staticmethod
+    def _pad_cfg_tensor(tensor: torch.Tensor, target_seq_len: int) -> torch.Tensor:
+        pad_len = target_seq_len - tensor.shape[1]
+        if pad_len <= 0:
+            return tensor
+        pad_shape = (*tensor.shape[:1], pad_len, *tensor.shape[2:])
+        pad = tensor.new_zeros(pad_shape)
+        return torch.cat([tensor, pad], dim=1)
+
+    @staticmethod
+    def _align_prompt_attention_mask(
+        prompt_attention_mask: torch.Tensor, prompt_embeds: torch.Tensor
+    ) -> torch.Tensor:
+        seq_len = prompt_embeds.shape[1]
+        if prompt_attention_mask.shape[1] == seq_len:
+            return prompt_attention_mask
+        return prompt_attention_mask[:, -seq_len:]
+
+    def _prepare_cond_kwargs(
+        self,
+        batch,
+        prompt_embeds,
+        rotary_emb,
+        device,
+        dtype,
+        prompt_attention_mask=None,
+    ):
         batch_size = prompt_embeds[0].shape[0]
         height = batch.height
         width = batch.width
@@ -216,13 +243,24 @@ class QwenImagePipelineConfig(ImagePipelineConfig):
             ]
         ] * batch_size
         txt_seq_lens = [prompt_embeds[0].shape[1]]
+        if prompt_attention_mask is not None:
+            txt_seq_lens = prompt_attention_mask.sum(dim=1).tolist()
+
+        cond_kwargs = {
+            "img_shapes": img_shapes,
+            "txt_seq_lens": txt_seq_lens,
+            "freqs_cis": None,
+        }
+        if prompt_attention_mask is not None:
+            prompt_attention_mask = self._align_prompt_attention_mask(
+                prompt_attention_mask, prompt_embeds[0]
+            )
+            txt_seq_lens = prompt_attention_mask.sum(dim=1).tolist()
+            cond_kwargs["txt_seq_lens"] = txt_seq_lens
+            cond_kwargs["encoder_hidden_states_mask"] = prompt_attention_mask
 
         if rotary_emb is None:
-            return {
-                "img_shapes": img_shapes,
-                "txt_seq_lens": txt_seq_lens,
-                "freqs_cis": None,
-            }
+            return cond_kwargs
 
         freqs_cis = self.get_freqs_cis(
             img_shapes, txt_seq_lens, rotary_emb, device, dtype
@@ -230,21 +268,80 @@ class QwenImagePipelineConfig(ImagePipelineConfig):
 
         img_cache, txt_cache = freqs_cis
         img_cache = shard_rotary_emb_for_sp(img_cache)
-        return {
-            "txt_seq_lens": txt_seq_lens,
-            "freqs_cis": (img_cache, txt_cache),
-            "img_shapes": img_shapes,
-        }
+        cond_kwargs["freqs_cis"] = (img_cache, txt_cache)
+        return cond_kwargs
 
     def prepare_pos_cond_kwargs(self, batch, device, rotary_emb, dtype):
         return self._prepare_cond_kwargs(
-            batch, batch.prompt_embeds, rotary_emb, device, dtype
+            batch,
+            batch.prompt_embeds,
+            rotary_emb,
+            device,
+            dtype,
+            prompt_attention_mask=batch.prompt_attention_mask[0],
         )
 
     def prepare_neg_cond_kwargs(self, batch, device, rotary_emb, dtype):
         return self._prepare_cond_kwargs(
-            batch, batch.negative_prompt_embeds, rotary_emb, device, dtype
+            batch,
+            batch.negative_prompt_embeds,
+            rotary_emb,
+            device,
+            dtype,
+            prompt_attention_mask=batch.negative_attention_mask[0],
         )
+
+    def prepare_serial_cfg_kwargs(self, batch, device, rotary_emb, dtype):
+        if (
+            os.environ.get("SGLANG_QWEN_IMAGE_BATCHED_SERIAL_CFG", "1") != "1"
+            or not batch.do_classifier_free_guidance
+            or not batch.prompt_embeds
+            or not batch.negative_prompt_embeds
+            or not batch.prompt_attention_mask
+            or not batch.negative_attention_mask
+        ):
+            return None
+
+        pos_prompt_embeds = self.get_pos_prompt_embeds(batch)
+        neg_prompt_embeds = self.get_neg_prompt_embeds(batch)
+
+        if (
+            not isinstance(pos_prompt_embeds, list)
+            or not isinstance(neg_prompt_embeds, list)
+            or len(pos_prompt_embeds) != 1
+            or len(neg_prompt_embeds) != 1
+        ):
+            return None
+
+        pos_prompt = pos_prompt_embeds[0]
+        neg_prompt = neg_prompt_embeds[0]
+        pos_mask = self._align_prompt_attention_mask(batch.prompt_attention_mask[0], pos_prompt)
+        neg_mask = self._align_prompt_attention_mask(batch.negative_attention_mask[0], neg_prompt)
+        max_seq_len = max(pos_prompt.shape[1], neg_prompt.shape[1])
+
+        combined_prompt_embeds = torch.cat(
+            [
+                self._pad_cfg_tensor(neg_prompt, max_seq_len),
+                self._pad_cfg_tensor(pos_prompt, max_seq_len),
+            ],
+            dim=0,
+        )
+        combined_prompt_mask = torch.cat(
+            [
+                self._pad_cfg_tensor(neg_mask, max_seq_len),
+                self._pad_cfg_tensor(pos_mask, max_seq_len),
+            ],
+            dim=0,
+        )
+
+        return self._prepare_cond_kwargs(
+            batch,
+            [combined_prompt_embeds],
+            rotary_emb,
+            device,
+            dtype,
+            prompt_attention_mask=combined_prompt_mask,
+        ) | {"encoder_hidden_states": [combined_prompt_embeds]}
 
     def post_denoising_loop(self, latents, batch):
         # unpack latents for qwen-image

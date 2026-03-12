@@ -667,6 +667,20 @@ class DenoisingStage(PipelineStage):
         else:
             neg_cond_kwargs = {}
 
+        serial_cfg_kwargs = None
+        if batch.do_classifier_free_guidance and not server_args.enable_cfg_parallel:
+            serial_cfg_kwargs = server_args.pipeline_config.prepare_serial_cfg_kwargs(
+                batch,
+                self.device,
+                getattr(self.transformer, "rotary_emb", None),
+                dtype=target_dtype,
+            )
+            if serial_cfg_kwargs is not None:
+                serial_cfg_kwargs = self.prepare_extra_func_kwargs(
+                    getattr(self.transformer, "forward", self.transformer),
+                    serial_cfg_kwargs,
+                )
+
         return {
             "extra_step_kwargs": extra_step_kwargs,
             "target_dtype": target_dtype,
@@ -686,6 +700,7 @@ class DenoisingStage(PipelineStage):
             "reserved_frames_mask": reserved_frames_mask_sp,  # Use SP-sharded version
             "seq_len": seq_len,
             "guidance": guidance,
+            "serial_cfg_kwargs": serial_cfg_kwargs,
         }
 
     def _post_denoising_loop(
@@ -992,6 +1007,7 @@ class DenoisingStage(PipelineStage):
         reserved_frames_mask = prepared_vars["reserved_frames_mask"]
         seq_len = prepared_vars["seq_len"]
         guidance = prepared_vars["guidance"]
+        serial_cfg_kwargs = prepared_vars["serial_cfg_kwargs"]
 
         # Initialize lists for ODE trajectory
         trajectory_timesteps: list[torch.Tensor] = []
@@ -1076,6 +1092,7 @@ class DenoisingStage(PipelineStage):
                             server_args=server_args,
                             guidance=guidance,
                             latents=latents,
+                            serial_cfg_kwargs=serial_cfg_kwargs,
                         )
 
                         # Save noise_pred to batch for external access (e.g., ComfyUI)
@@ -1350,6 +1367,12 @@ class DenoisingStage(PipelineStage):
             **kwargs,
         )
 
+    @staticmethod
+    def _duplicate_cfg_batch(tensor: torch.Tensor | None) -> torch.Tensor | None:
+        if tensor is None:
+            return None
+        return torch.cat([tensor, tensor], dim=0)
+
     def _predict_noise_with_cfg(
         self,
         current_model: nn.Module,
@@ -1366,6 +1389,7 @@ class DenoisingStage(PipelineStage):
         server_args,
         guidance,
         latents,
+        serial_cfg_kwargs: dict[str, Any] | None,
     ):
         """
         Predict the noise residual with classifier-free guidance.
@@ -1389,8 +1413,37 @@ class DenoisingStage(PipelineStage):
         noise_pred_cond: torch.Tensor | None = None
         noise_pred_uncond: torch.Tensor | None = None
         cfg_rank = get_classifier_free_guidance_rank()
+        use_serial_cfg_batch = (
+            batch.do_classifier_free_guidance
+            and not server_args.enable_cfg_parallel
+            and serial_cfg_kwargs is not None
+        )
+
+        if use_serial_cfg_batch:
+            batch.is_cfg_negative = False
+            with set_forward_context(
+                current_timestep=timestep_index,
+                attn_metadata=attn_metadata,
+                forward_batch=batch,
+            ):
+                noise_pred = self._predict_noise(
+                    current_model=current_model,
+                    latent_model_input=self._duplicate_cfg_batch(latent_model_input),
+                    timestep=self._duplicate_cfg_batch(timestep),
+                    target_dtype=target_dtype,
+                    guidance=self._duplicate_cfg_batch(guidance),
+                    **image_kwargs,
+                    **serial_cfg_kwargs,
+                )
+                noise_pred = server_args.pipeline_config.slice_noise_pred(
+                    noise_pred, latents
+                )
+            noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2, dim=0)
+
         # positive pass
-        if not (server_args.enable_cfg_parallel and cfg_rank != 0):
+        if not use_serial_cfg_batch and not (
+            server_args.enable_cfg_parallel and cfg_rank != 0
+        ):
             batch.is_cfg_negative = False
             with set_forward_context(
                 current_timestep=timestep_index,
@@ -1415,7 +1468,10 @@ class DenoisingStage(PipelineStage):
             return noise_pred_cond
 
         # negative pass
-        if not server_args.enable_cfg_parallel or cfg_rank != 0:
+        if (
+            not use_serial_cfg_batch
+            and (not server_args.enable_cfg_parallel or cfg_rank != 0)
+        ):
             batch.is_cfg_negative = True
             with set_forward_context(
                 current_timestep=timestep_index,
