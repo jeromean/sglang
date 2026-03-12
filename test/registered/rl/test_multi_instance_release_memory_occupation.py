@@ -23,7 +23,11 @@ from sglang.test.test_utils import (
 )
 
 register_cuda_ci(est_time=64, suite="stage-c-test-4-gpu-h100")
-register_amd_ci(est_time=64, suite="stage-c-test-4-gpu-amd")
+register_amd_ci(
+    est_time=64,
+    suite="stage-c-test-4-gpu-amd",
+    disabled="Multi-process engine startup crash on AMD (torch_memory_saver incompatible with ROCm)",
+)
 
 AMD_DIST_TIMEOUT = timedelta(minutes=20)
 
