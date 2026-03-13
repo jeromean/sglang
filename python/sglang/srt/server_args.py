@@ -722,9 +722,6 @@ class ServerArgs:
     # For forward hooks
     forward_hooks: Optional[List[dict[str, Any]]] = None
 
-    # for Drop Guard
-    drop_guard: str = "none"
-
     def __post_init__(self):
         """
         Orchestrates the handling of various server arguments, ensuring proper configuration and validation.
@@ -3284,15 +3281,6 @@ class ServerArgs:
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser):
-
-        # For drop Guard
-        parser.add_argument(
-            "--drop-guard",
-            type=str,
-            default="none",
-            choices=["none", "shape", "all"],
-            help="Enable/Disable guards with torch compile",
-        )
 
         # Model and tokenizer
         parser.add_argument(

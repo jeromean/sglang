@@ -439,17 +439,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         self._model_update_group = {}
         self._weights_send_group = {}
 
-        print(f"#####################################################")
-        # For drop_guard feature porting
-        self.compile_wrapper = None
-        if self.server_args.enable_torch_compile:
-            drop_guard  = self.server_args.drop_guard
-            from sglang.srt.model_executor.compile_wrapper import CompileWrapper
-            #self.compile_wrapper = CompileWrapper(self.model, drop_guard=drop_guard)
-            print(f"********************************JEROME guard drop :: {drop_guard} **********")
-            #self.model = self.compile_wrapper.compile()
-            self.model = CompileWrapper(self.model, drop_guard=drop_guard)
-
     def init_mindspore_runner(self):
         # Init the mindspore runner
         # for now, there is only some communication initialization work
@@ -2382,13 +2371,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         kwargs = {}
         if self.support_pp:
             kwargs["pp_proxy_tensors"] = pp_proxy_tensors
-
-        print(f"########################forward_decode############################# {self.server_args.drop_guard} ######")
-        if self.server_args.enable_torch_compile and self.server_args.drop_guard:
-            print("****JEROME - make batch size dynamic in decode")
-            #prefill phase : make seq len/ dim 1 as dynamic
-            torch._dynamo.mark_dynamic(forward_batch.input_ids, 0, min=1, max=2048)
-
         return self.model.forward(
             forward_batch.input_ids,
             forward_batch.positions,
@@ -2425,13 +2407,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
         if not skip_attn_backend_init:
             self.attn_backend.init_forward_metadata(forward_batch)
-
-        print(f"########################forward_extend############################# {self.server_args.drop_guard} ######")
-        if self.server_args.drop_guard:
-            print("****JEROME - make seq len dynamic in prefill")
-            #prefill phase : make seq len/ dim 1 as dynamic
-            torch._dynamo.mark_dynamic(forward_batch.input_ids, 1)
-            torch._dynamo.mark_dynamic(forward_batch.positions, 1)
 
         return (
             self.model.forward(
