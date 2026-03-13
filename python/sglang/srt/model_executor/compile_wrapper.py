@@ -7,17 +7,15 @@ class CompileWrapper:
         print(f"########################compilewrapper############################# {self.drop_guard} ######")
     
         def _guard_filter(guards):
-            # handle guard drops for dynamic shapes with SHAPE_ENV
             if self.drop_guard == "none":
                 return guards
             
             if self.drop_guard == "all":
                 return [False for _ in guards]
-    
+
+            # handle guard drops for dynamic shapes with SHAPE_ENV
             if self.drop_guard == "shape":
                 return [getattr(g, "guard_type", None) == "SHAPE_ENV" for g in guards]
-                #return [ g for g in guards if "SHAPE_ENV" not in str(g) and "size mismatch" not in str(g)]
-            #return [False for _ in guards]
             return guards
     
         self.compiled_model = torch.compile(
@@ -32,21 +30,3 @@ class CompileWrapper:
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    # def compile(self):
-    #     options = {"guard_filter_fn":self._guard_filter,
-    #                "triton.cudagraphs": True
-    #     }
-        
-    #     if self.drop_guard:
-    #         self.compiled_fn = torch.compile(
-    #             self.model,
-    #             dynamic=True,
-    #             options=options
-    #         )
-    #     else:
-    #         self.compiled_fn = torch.compile(
-    #             self.model,
-    #             dynamic=False,
-    #         )
-        
-    #     return self.compiled_fn
