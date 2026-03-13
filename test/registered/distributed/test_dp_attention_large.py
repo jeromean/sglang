@@ -1,3 +1,4 @@
+import os
 import unittest
 from types import SimpleNamespace
 
@@ -5,7 +6,7 @@ import requests
 
 from sglang.lang.chat_template import get_chat_template_by_model_path
 from sglang.srt.utils import kill_process_tree
-from sglang.test.ci.ci_register import register_cuda_ci
+from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
 from sglang.test.few_shot_gsm8k import run_eval as run_eval_few_shot_gsm8k
 from sglang.test.kits.ebnf_constrained_kit import TestEBNFConstrainedMixin
 from sglang.test.kits.json_constrained_kit import TestJSONConstrainedMixin
@@ -24,8 +25,45 @@ from sglang.test.test_utils import (
 )
 
 register_cuda_ci(est_time=350, suite="stage-c-test-4-gpu-h100")
+register_amd_ci(est_time=350, suite="stage-c-test-4-gpu-amd")
+
+AMD_4GPU_MEM_FRACTION = "0.60"
+AMD_4GPU_TIMEOUT = "1200"
 
 
+def _amd_dp_attention_env():
+    if not is_in_amd_ci():
+        return None
+
+    env = os.environ.copy()
+    env["NCCL_CUMEM_ENABLE"] = "0"
+    env["NCCL_NVLS_ENABLE"] = "0"
+    env["RCCL_MSCCL_ENABLE"] = "0"
+    env["SGLANG_USE_ROCM700A"] = "1"
+    env["SGLANG_USE_AITER"] = "0"
+    return env
+
+
+def _amd_dp_attention_args():
+    if not is_in_amd_ci():
+        return []
+
+    return [
+        "--attention-backend",
+        "triton",
+        "--mem-fraction-static",
+        AMD_4GPU_MEM_FRACTION,
+        "--watchdog-timeout",
+        AMD_4GPU_TIMEOUT,
+        "--dist-timeout",
+        AMD_4GPU_TIMEOUT,
+    ]
+
+
+@unittest.skipIf(
+    is_in_amd_ci(),
+    "DeepSeek MLA forward_mla NameError on AMD (batched_gemm not defined)",
+)
 class TestDPAttentionDP2TP4(
     CustomTestCase,
     TestJSONConstrainedMixin,
@@ -36,16 +74,20 @@ class TestDPAttentionDP2TP4(
     def setUpClass(cls):
         cls.model = DEFAULT_MLA_MODEL_NAME_FOR_TEST
         cls.base_url = DEFAULT_URL_FOR_TEST
+        tp = "2" if is_in_amd_ci() else "4"
+        other_args = [
+            "--trust-remote-code",
+            f"--tp={tp}",
+            "--enable-dp-attention",
+            "--dp=2",
+        ]
+        other_args.extend(_amd_dp_attention_args())
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            other_args=[
-                "--trust-remote-code",
-                "--tp=4",
-                "--enable-dp-attention",
-                "--dp=2",
-            ],
+            other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod
@@ -66,6 +108,10 @@ class TestDPAttentionDP2TP4(
         self.assertGreater(metrics["score"], 0.8)
 
 
+@unittest.skipIf(
+    is_in_amd_ci(),
+    "DeepSeek MTP forward_mla NameError on AMD + needs 8 GPUs",
+)
 class TestDPAttentionDP2TP2DeepseekV3MTP(
     CustomTestCase,
     TestJSONConstrainedMixin,
@@ -89,13 +135,16 @@ class TestDPAttentionDP2TP2DeepseekV3MTP(
             "--enable-dp-attention",
             "--dp-size=2",
         ]
-        if not is_in_amd_ci():
+        if is_in_amd_ci():
+            other_args.extend(_amd_dp_attention_args())
+        else:
             other_args += ["--mem-frac", "0.7"]
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
             other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod
@@ -137,18 +186,22 @@ class TestDPAttentionDP2TP4VLM(CustomTestCase):
         cls.model = "Qwen/Qwen3-VL-30B-A3B-Instruct"
         cls.base_url = DEFAULT_URL_FOR_TEST
         cls.image_url = DEFAULT_IMAGE_URL
+        tp = "2" if is_in_amd_ci() else "4"
+        other_args = [
+            "--trust-remote-code",
+            "--tp",
+            tp,
+            "--enable-dp-attention",
+            "--dp",
+            "2",
+        ]
+        other_args.extend(_amd_dp_attention_args())
         cls.process = popen_launch_server(
             cls.model,
             cls.base_url,
             timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            other_args=[
-                "--trust-remote-code",
-                "--tp",
-                "4",
-                "--enable-dp-attention",
-                "--dp",
-                "2",
-            ],
+            other_args=other_args,
+            env=_amd_dp_attention_env(),
         )
 
     @classmethod
