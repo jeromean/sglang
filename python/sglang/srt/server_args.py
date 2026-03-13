@@ -723,7 +723,7 @@ class ServerArgs:
     forward_hooks: Optional[List[dict[str, Any]]] = None
 
     # for Drop Guard
-    drop_guard: str = "none"
+    drop_guard: str = 'none'
 
     def __post_init__(self):
         """

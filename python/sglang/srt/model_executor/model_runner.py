@@ -442,7 +442,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         print(f"#####################################################")
         # For drop_guard feature porting
         self.compile_wrapper = None
-        if self.server_args.enable_torch_compile:
+        if (self.server_args.enable_torch_compile and (self.server_args.drop_guard != 'none')):
             drop_guard  = self.server_args.drop_guard
             from sglang.srt.model_executor.compile_wrapper import CompileWrapper
             print(f"******************************** guard drop :: {drop_guard} **********")
@@ -2382,7 +2382,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             kwargs["pp_proxy_tensors"] = pp_proxy_tensors
 
         print(f"######################## forward_decode ############################# {self.server_args.drop_guard} ######")
-        if self.server_args.enable_torch_compile and self.server_args.drop_guard:
+        if (self.server_args.enable_torch_compile and (self.server_args.drop_guard != 'none')):
             print("**** make batch size dynamic in decode ***")
             #prefill phase : make seq len/ dim 1 as dynamic
             torch._dynamo.mark_dynamic(forward_batch.input_ids, 0, min=1, max=2048)
@@ -2425,7 +2425,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             self.attn_backend.init_forward_metadata(forward_batch)
 
         print(f"######################## forward_extend ############################# {self.server_args.drop_guard} ######")
-        if self.server_args.drop_guard:
+        if (self.server_args.enable_torch_compile and (self.server_args.drop_guard != 'none')):
             print("**** make seq len dynamic in prefill *****")
             #prefill phase : make seq len/ dim 1 as dynamic
             torch._dynamo.mark_dynamic(forward_batch.input_ids, 1)
